@@ -97,6 +97,46 @@ int BoardBatteryVoltGet(uint32_t *mv) {
   return 0;
 }
 
+
+//I have not tested this, but as the board ADC is 12 bit, can we return a Short for the voltage value 
+int ShortBatteryVoltGet(uint16_t *mv) {
+// Compensate for the voltage drop across the diode Q202
+#define VEXT_COMPENSATE 15    // [mV]
+#define SWITCH_SETTLE_TIME 1  // [ms]
+#define AVERAGE_COUNT 3
+
+  const uint8_t ADCPin = PIN_ADC1;
+  const uint8_t ControlPin =
+      PIN_GPIO2;  // Pin to control the switch for the measurement
+
+  // Check development board revision
+  GPIOSetModeInput(PIN_ADC1, GPIO_NO_PULL);
+  bool IsRev1 = (GPIOGet(PIN_ADC1) == GPIO_HIGH);
+
+  GPIOSetModeOutput(ControlPin);
+  GPIOSetHigh(ControlPin);
+  Delay(SWITCH_SETTLE_TIME);
+
+  uint32_t batt = 0, volt = 0;
+  for (unsigned i = 0; i < AVERAGE_COUNT; i++) {
+    ADCReference Ref;
+    if (IsRev1)
+      Ref = ADC_REF_VIO;  // May clip if battery voltage is higher than VIO
+    else
+      Ref = ADC_REF_2V5;  // Battery voltage won't be higher than 5V
+    if (ADCGetVoltage(ADCPin, Ref, &batt)) {
+      GPIOSetModeInput(ControlPin, GPIO_PULL_DOWN);
+      return -1;
+    } else {
+      volt += batt + VEXT_COMPENSATE;
+    }
+  }
+  GPIOSetModeInput(ControlPin, GPIO_PULL_DOWN);
+  *mv = volt / AVERAGE_COUNT;
+  if (!IsRev1) *mv *= 2;  // Dividor on the development board
+  return 0;
+}
+
 void BoardLEDInit(void) {
   GPIOSetModeOutput(PIN_GPIO3);
   GPIOSetLow(PIN_GPIO3);
